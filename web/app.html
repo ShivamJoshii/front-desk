@@ -35,6 +35,58 @@
 .leadlist .nm{font-weight:600}.leadlist .sub{font-size:12px;color:var(--app-muted)}
 .calllink{display:block;text-align:center;font-size:13px;color:var(--app-muted);margin-top:8px}
 @media (max-width:900px){.owners .grid{grid-template-columns:repeat(2,1fr)}.owners .two{grid-template-columns:1fr}}
+/* team board */
+:root{--area-sales:#215db0;--area-ops:#935610;--area-marketing:#634dbf}
+.bp6-dark{--area-sales:#8abbff;--area-ops:#fbb360;--area-marketing:#bdadff}
+.board{max-width:1240px;margin:0 auto;padding:16px 20px 110px}
+.board-hd{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 14px}
+.board-hd h2{margin:0;font-size:26px;letter-spacing:-.3px}
+.board-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.board-stats .stat{display:flex;flex-direction:column;justify-content:space-between}.board-stats .num.late{color:var(--app-danger)}.board-stats .num.ok{color:var(--app-success)}
+.board-filters{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips .bp6-button{border-radius:999px;min-height:36px;padding:0 14px}
+.chips.seg .bp6-button{flex:1;border-radius:6px;min-height:40px;font-weight:600}
+.board-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;align-items:start}
+.board-cols.one{grid-template-columns:minmax(0,760px)}
+.bcol h3{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 8px;font-size:17px;font-weight:700}
+.bcol h3 .n,.bdone summary .n{font-size:13px;color:var(--app-muted);font-weight:500}
+.area-sales{color:var(--area-sales)}.area-ops{color:var(--area-ops)}.area-marketing{color:var(--area-marketing)}
+.atag{font-weight:600}.atag.sales{color:var(--area-sales)}.atag.ops{color:var(--area-ops)}.atag.marketing{color:var(--area-marketing)}
+.tcard{display:flex;gap:6px;align-items:flex-start;padding:10px 12px 12px 6px;margin-bottom:8px;cursor:pointer}
+.tcheck{flex:none;width:40px;height:40px;border:0;background:none;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:50%;color:#fff}
+.tcheck i{width:22px;height:22px;border-radius:50%;border:2px solid var(--app-muted);display:flex;align-items:center;justify-content:center}
+.tcheck:hover i,.tcheck:focus-visible i{border-color:var(--app-success)}
+.tcard.done .tcheck i{background:var(--app-success);border-color:var(--app-success)}
+.tcheck .ic{width:12px;height:12px}
+.tcard .tb{flex:1;min-width:0;padding-top:8px}
+.tcard .ttl{display:block;width:100%;text-align:left;background:none;border:0;padding:0;margin:0 0 8px;font:inherit;font-weight:600;font-size:15px;line-height:1.35;color:var(--app-ink);cursor:pointer}
+.tcard.done .ttl{text-decoration:line-through;color:var(--app-muted)}
+.tcard .tnote{font-size:13px;color:var(--app-muted);margin:-4px 0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tcard .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+.tcard .who{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.tcard .who.nobody{color:var(--app-muted);font-weight:500;font-style:italic}
+.tcard .due{color:var(--app-muted)}.tcard .due.late{color:var(--app-danger);font-weight:600}.tcard .due.today{color:var(--app-ink);font-weight:600}
+.tcard .st{margin-left:auto;cursor:pointer;border:0}
+.av{width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex:none}
+.av-0{background:#d3e2f7;color:#184a90}.av-1{background:#d4eedf;color:#1c6e42}.av-2{background:#fbe3c8;color:#7a4411}.av-3{background:#e3dcfb;color:#4b3699}.av-4{background:#cdeeea;color:#0f5e57}.av-5{background:#f8d9e2;color:#8a2347}
+.bp6-dark .av-0{background:#1f3f69;color:#d6e6ff}.bp6-dark .av-1{background:#1d4a33;color:#d4f5e2}.bp6-dark .av-2{background:#5a3712;color:#ffe6c7}.bp6-dark .av-3{background:#3b2f6e;color:#e7e0ff}.bp6-dark .av-4{background:#164a45;color:#d0f5f0}.bp6-dark .av-5{background:#5e2337;color:#ffdbe6}
+.bempty{color:var(--app-muted);font-size:13px;padding:8px 4px 14px}
+.bdone{margin-top:24px;max-width:760px}
+.bdone summary{cursor:pointer;font-size:15px;font-weight:700;color:var(--app-success);margin:0 2px 10px}
+#taskDlg .bp6-dialog{width:520px;max-height:calc(100vh - 32px);overflow:auto}
+#taskDlg .bp6-dialog-footer-actions{align-items:center}
+#taskDlg .td-spacer{flex:1}
+#taskDlg .bp6-form-group{margin-bottom:16px}
+#taskDlg input,#taskDlg textarea{font-size:16px;font-family:inherit}
+#taskDlg [hidden]{display:none !important}
+#tdDate{margin-top:8px;width:200px}
+.td-due{margin-top:6px}
+@media (max-width:900px){.board-cols{grid-template-columns:1fr}.board-cols.one{grid-template-columns:1fr}.board-stats{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:640px){.board{padding:12px 12px 110px}.chips .bp6-button{min-height:42px}.board-hd h2{font-size:22px}
+  .board-stats{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.board-stats .stat{padding:8px 10px;min-width:0}.board-stats .num{font-size:22px}.board-stats .lab{font-size:11px;line-height:1.25}
+  .board-filters .chips{flex-wrap:nowrap;overflow-x:auto;margin:0 -12px;padding:0 12px 2px;scrollbar-width:none}.board-filters .chips::-webkit-scrollbar{display:none}.board-filters .chips .bp6-button{flex:none}
+  .bottombar .bp6-button{padding:0 6px;white-space:nowrap}#taskDlg.ovl{align-items:flex-end;padding:0}#taskDlg .bp6-dialog{width:100%;max-height:92vh;border-radius:12px 12px 0 0}}
 </style>
 </head>
 <body>
@@ -49,6 +101,7 @@
   <div class="bp6-navbar-group bp6-align-right" id="navRight" style="display:none">
     <button class="bp6-button bp6-minimal nav-center" data-nav="today"><svg class="ic"><use href="#i-flag"/></svg>&nbsp;Today</button>
     <button class="bp6-button bp6-minimal nav-center" data-nav="leads"><svg class="ic"><use href="#i-search"/></svg>&nbsp;Leads</button>
+    <button class="bp6-button bp6-minimal nav-center" data-nav="board"><svg class="ic"><use href="#i-board"/></svg>&nbsp;Board</button>
     <button class="bp6-button bp6-minimal nav-center" data-nav="owners"><svg class="ic"><use href="#i-dashboard"/></svg>&nbsp;Owners</button>
     <button class="bp6-button bp6-intent-success nav-center" data-walkin><svg class="ic"><use href="#i-walk"/></svg>&nbsp;Walk-in</button>
     <span class="bp6-navbar-divider"></span>
@@ -82,6 +135,26 @@
   <div class="leadlist">
     <div class="bp6-input-group bp6-large" style="margin-bottom:12px"><input class="bp6-input" id="leadSearch" placeholder="Search a name or phone"></div>
     <div id="leadRows"></div>
+  </div>
+</main>
+
+<!-- BOARD (team tasks: sales / ops / marketing) -->
+<main class="view hidden" id="view-board">
+  <div class="board">
+    <div class="board-hd">
+      <div>
+        <h2 class="bp6-heading">Team board</h2>
+        <div class="bp6-text-muted" id="boardSub"></div>
+      </div>
+      <button class="bp6-button bp6-intent-primary bp6-large" id="boardAdd"><svg class="ic"><use href="#i-plus"/></svg>&nbsp;Add task</button>
+    </div>
+    <div class="board-stats" id="boardStats"></div>
+    <div class="board-filters">
+      <div class="chips" id="boardWho" role="group" aria-label="Whose tasks"></div>
+      <div class="chips" id="boardArea" role="group" aria-label="Part of the business"></div>
+    </div>
+    <div class="board-cols" id="boardCols"><p class="bp6-text-muted">Loading…</p></div>
+    <div id="boardDone"></div>
   </div>
 </main>
 
@@ -137,9 +210,26 @@
   </div>
 </div>
 
+<!-- TEAM TASK -->
+<div class="ovl" id="taskDlg">
+  <div class="bp6-dialog" role="dialog" aria-modal="true" aria-labelledby="tdTitle">
+    <div class="bp6-dialog-header"><h6 class="bp6-heading" id="tdTitle">New task</h6><button class="bp6-dialog-close-button bp6-button bp6-minimal" data-td-close aria-label="Close"><svg class="ic"><use href="#i-cross"/></svg></button></div>
+    <div class="bp6-dialog-body">
+      <div class="bp6-form-group"><label class="bp6-label" for="tdText">What needs doing?</label><div class="bp6-input-group bp6-large"><input class="bp6-input" id="tdText" placeholder="e.g. Order grout for next week’s tile job" autocomplete="off"></div></div>
+      <div class="bp6-form-group"><span class="bp6-label">Part of the business</span><div class="chips seg" id="tdArea"></div></div>
+      <div class="bp6-form-group"><span class="bp6-label">Who owns it?</span><div class="chips" id="tdOwner"></div></div>
+      <div class="bp6-form-group"><span class="bp6-label">Due</span><div class="chips" id="tdDue"></div><input class="bp6-input" type="date" id="tdDate" hidden><div class="bp6-text-muted bp6-text-small td-due" id="tdDueText"></div></div>
+      <div class="bp6-form-group" id="tdStatusWrap" hidden><span class="bp6-label">Status</span><div class="chips seg" id="tdStatus"></div></div>
+      <div class="bp6-form-group"><label class="bp6-label" for="tdNote">Note <span class="bp6-text-muted">(optional)</span></label><textarea class="bp6-input bp6-fill" id="tdNote" rows="2" placeholder="Anything they need to know"></textarea></div>
+    </div>
+    <div class="bp6-dialog-footer"><div class="bp6-dialog-footer-actions"><button class="bp6-button bp6-minimal bp6-intent-danger" id="tdDelete" hidden>Delete</button><span class="td-spacer"></span><button class="bp6-button" data-td-close>Cancel</button><button class="bp6-button bp6-intent-primary bp6-large" id="tdSave">Add task</button></div></div>
+  </div>
+</div>
+
 <div class="bottombar" id="bottombar" style="display:none">
   <button class="bp6-button bp6-intent-success bp6-large" data-walkin><svg class="ic"><use href="#i-walk"/></svg>&nbsp;Walk-in</button>
   <button class="bp6-button bp6-outlined bp6-large" data-nav="leads">Leads</button>
+  <button class="bp6-button bp6-outlined bp6-large" data-nav="board">Board</button>
   <button class="bp6-button bp6-outlined bp6-large" data-nav="owners">Owners</button>
 </div>
 

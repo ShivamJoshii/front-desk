@@ -17,7 +17,8 @@ build.py        inlines everything into web/dist/index.html (+ _redirects, manif
 netlify.toml    Netlify builds with `python3 build.py`, publishes web/dist
 supabase/
   migrations/   schema: stores, members, invites, leads, lead_events, tasks, appointments,
-                estimates, invoices, payments, daily_reports, desk_settings, integrations
+                estimates, invoices, payments, daily_reports, desk_settings, integrations,
+                team_tasks (the Board: internal Sales / Ops / Marketing tasks, separate from the lead-card `tasks`)
   functions/
     ghl-sync    GHL → leads/lead_events (full / incremental / backfill)
     desk-rules  the task engine: SLA, cadence, chases, confirms, focus/eod
@@ -40,6 +41,11 @@ python3 build.py                 # → web/dist/index.html
 
 Edge functions: deploy with the Supabase MCP / CLI (`supabase functions deploy <name> --project-ref rzaptykiirntegysuulr`).
 `ghl-sync` runs with `verify_jwt=false` (it checks the service key / `x-desk-key` itself); every other function needs a signed-in user.
+
+## Board
+
+`#board` — the team's Sales / Ops / Marketing tasks (`team_tasks`). Owners come from `desk_settings.settings.team`
+(a list of names; people don't need a login to own a task). Nothing here feeds the Today stack.
 
 ## Config (never in the repo)
 

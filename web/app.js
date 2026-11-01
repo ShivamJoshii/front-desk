@@ -9,7 +9,8 @@
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
   var esc = function (s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;"); };
-  var S = { user: null, store: null, storeName: "", role: "staff", deskRole: null, settings: {}, tz: "America/Edmonton", ghlLocation: null, tasks: [], current: null, view: "today", leadsCache: null };
+  var S = { user: null, store: null, storeName: "", role: "staff", deskRole: null, myName: "", members: [], settings: {}, tz: "America/Edmonton", ghlLocation: null, tasks: [], current: null, view: "today", leadsCache: null };
+  var VIEWS = ["today", "leads", "board", "owners", "settings"];
 
   // ---------- small utils ----------
   var tt; function toast(m, intent) { var t = $("#toast"); t.className = "bp6-toast toast show bp6-intent-" + (intent || "success"); $("#toastMsg").textContent = m; clearTimeout(tt); tt = setTimeout(function () { t.classList.remove("show"); }, 3200); }
@@ -36,10 +37,11 @@
   // ---------- views ----------
   function show(v) {
     S.view = v;
-    ["login", "today", "leads", "owners", "settings"].forEach(function (k) { $("#view-" + k).classList.toggle("hidden", k !== v); });
+    ["login"].concat(VIEWS).forEach(function (k) { $("#view-" + k).classList.toggle("hidden", k !== v); });
     $$("[data-nav]").forEach(function (b) { b.classList.toggle("bp6-intent-primary", b.dataset.nav === v && b.classList.contains("nav-center")); });
     if (v === "today") loadTasks();
     if (v === "leads") loadLeads();
+    if (v === "board") loadBoard();
     if (v === "owners") loadOwners();
     if (v === "settings") loadSettings();
     window.scrollTo(0, 0);
@@ -71,9 +73,10 @@
     if (path.indexOf("/connect/quickbooks") === 0) { location.href = FN + "/qbo-connect?store_id=" + S.store; return; }
     if (path.indexOf("/settings/quickbooks") === 0) { history.replaceState(null, "", "/#settings"); show("settings"); return; }
     var h = (location.hash || "#today").slice(1);
-    show(["today", "leads", "owners", "settings"].indexOf(h) >= 0 ? h : "today");
+    show(VIEWS.indexOf(h) >= 0 ? h : "today");
     tick();
     setInterval(function () { if (S.view === "today" && !document.hidden) loadTasks(true); }, 60000);
+    setInterval(function () { if (S.view === "board" && !document.hidden && !$("#taskDlg").classList.contains("open")) loadBoard(); }, 60000);
     setInterval(tick, 5 * 60000);
   }
   sb.auth.onAuthStateChange(function (ev) { if (ev === "SIGNED_IN" && !S.user) boot(); });
@@ -84,7 +87,9 @@
     var rows = m.data || [];
     if (!rows.length) { $("#view-login").classList.remove("hidden"); $("#loginMsg").textContent = "Signed in as " + S.user.email + ", but this email isn't on any store yet. Ask Shivam to add you."; return false; }
     var r = rows[0];
-    S.store = r.store_id; S.storeName = r.stores ? r.stores.name : ""; S.role = r.role; S.deskRole = r.desk_role;
+    S.store = r.store_id; S.storeName = r.stores ? r.stores.name : ""; S.role = r.role; S.deskRole = r.desk_role; S.myName = r.display_name || "";
+    var mm = await sb.from("store_members").select("display_name").eq("store_id", S.store);
+    S.members = (mm.data || []).map(function (x) { return x.display_name; }).filter(Boolean);
     $("#storeName").textContent = "· " + S.storeName; $("#userName").textContent = r.display_name || (S.user.email || "").split("@")[0];
     var st2 = await sb.from("desk_settings").select("settings").eq("store_id", S.store).maybeSingle();
     S.settings = (st2.data && st2.data.settings) || {}; S.tz = S.settings.timezone || S.tz;
@@ -372,7 +377,7 @@
   };
   function closeLead() { $("#panel").classList.remove("open"); $("#panelBack").classList.remove("open"); document.body.style.overflow = ""; }
   $("#panelClose").onclick = closeLead; $("#panelBack").onclick = closeLead;
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape") { closeLead(); closeW(); } });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") { closeLead(); closeW(); closeTD(); } });
 
   // ---------- leads list ----------
   async function loadLeads() {
@@ -386,6 +391,195 @@
     $$("#leadRows [data-lead]").forEach(function (el) { el.onclick = function () { openLead(el.dataset.lead); }; });
   }
   $("#leadSearch").addEventListener("input", drawLeads);
+
+  // ---------- team board (sales / ops / marketing) ----------
+  // Internal team tasks live in team_tasks. They never touch the lead-card `tasks` table or the Today stack.
+  var AREAS = [["sales", "Sales"], ["ops", "Ops"], ["marketing", "Marketing"]];
+  var AREA_LABEL = { sales: "Sales", ops: "Ops", marketing: "Marketing" };
+  var B = { rows: [], done: [], who: "all", area: "all", loaded: false };
+  var TD = null;
+  try { var bp = JSON.parse(localStorage.getItem("fd-board") || "{}"); if (bp.who) B.who = bp.who; if (bp.area) B.area = bp.area; } catch (e) {}
+  function saveBoardPrefs() { try { localStorage.setItem("fd-board", JSON.stringify({ who: B.who, area: B.area })); } catch (e) {} }
+  function lc(s) { return String(s || "").trim().toLowerCase(); }
+  function isoAdd(iso, n) { var d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  function isoDow(iso) { return new Date(iso + "T12:00:00Z").getUTCDay(); }
+  function fmtDay(iso, o) { return new Intl.DateTimeFormat("en-CA", Object.assign({ timeZone: "UTC" }, o)).format(new Date(iso + "T12:00:00Z")); }
+  function team() {
+    var names = [];
+    var add = function (n) { n = String(n || "").trim(); if (n && names.map(lc).indexOf(lc(n)) < 0) names.push(n); };
+    (S.settings.team || []).forEach(add);
+    if (!names.length) { S.members.forEach(add); ((S.settings.home_visit && S.settings.home_visit.assignees) || []).forEach(add); }
+    B.rows.concat(B.done).forEach(function (t) { add(t.owner_name); });
+    var i = names.map(lc).indexOf(lc(S.myName)); if (i > 0) names.unshift(names.splice(i, 1)[0]);
+    return names;
+  }
+  function avIdx(n) { var k = (S.settings.team || []).map(lc).indexOf(lc(n)); if (k >= 0) return k % 6; var h = 0; for (var i = 0; i < n.length; i++) h = (h * 31 + n.charCodeAt(i)) >>> 0; return h % 6; }
+  function dueLabel(t) {
+    if (!t.due_on) return { text: "No date", cls: "" };
+    var today = todayISO();
+    if (t.due_on < today) return { text: "Overdue · " + fmtDay(t.due_on, { month: "short", day: "numeric" }), cls: "late" };
+    if (t.due_on === today) return { text: "Today", cls: "today" };
+    if (t.due_on === isoAdd(today, 1)) return { text: "Tomorrow", cls: "" };
+    return { text: fmtDay(t.due_on, { weekday: "short", month: "short", day: "numeric" }), cls: "" };
+  }
+  function byDue(a, b) {
+    if (a.due_on !== b.due_on) { if (!a.due_on) return 1; if (!b.due_on) return -1; return a.due_on < b.due_on ? -1 : 1; }
+    if (a.status !== b.status) return a.status === "doing" ? -1 : 1;
+    return a.created_at < b.created_at ? -1 : 1;
+  }
+  function findT(id) { return B.rows.concat(B.done).find(function (t) { return t.id === id; }); }
+  function regroup() {
+    var all = B.rows.concat(B.done);
+    B.rows = all.filter(function (t) { return t.status !== "done"; });
+    B.done = all.filter(function (t) { return t.status === "done"; }).sort(function (a, b) { return (b.done_at || "") < (a.done_at || "") ? -1 : 1; });
+  }
+
+  async function loadBoard() {
+    var since = new Date(Date.now() - 7 * 86400000).toISOString();
+    var q = await Promise.all([
+      sb.from("team_tasks").select("*").eq("store_id", S.store).neq("status", "done").limit(500),
+      sb.from("team_tasks").select("*").eq("store_id", S.store).eq("status", "done").gte("done_at", since).order("done_at", { ascending: false }).limit(100),
+    ]);
+    var err = q[0].error || q[1].error;
+    if (err) { $("#boardCols").innerHTML = '<div class="bp6-callout bp6-intent-warning">Couldn’t load the board: ' + esc(err.message) + "</div>"; return; }
+    B.rows = q[0].data || []; B.done = q[1].data || []; B.loaded = true;
+    drawBoard();
+  }
+
+  function tcard(t, showArea) {
+    var d = dueLabel(t), isDone = t.status === "done";
+    var who = t.owner_name ? '<span class="who"><span class="av av-' + avIdx(t.owner_name) + '" aria-hidden="true">' + esc(t.owner_name.charAt(0).toUpperCase()) + "</span>" + esc(t.owner_name) + "</span>" : '<span class="who nobody">No owner yet</span>';
+    return '<div class="bp6-card tcard' + (isDone ? " done" : "") + '" data-tid="' + t.id + '">' +
+      '<button class="tcheck" data-check aria-label="' + (isDone ? "Put back: " : "Mark done: ") + esc(t.title) + '"><i>' + (isDone ? '<svg class="ic"><use href="#i-tick"/></svg>' : "") + "</i></button>" +
+      '<div class="tb"><button class="ttl" data-edit>' + esc(t.title) + "</button>" + (t.note ? '<div class="tnote">' + esc(t.note) + "</div>" : "") +
+      '<div class="meta">' + who +
+      (isDone ? '<span class="due">done ' + esc(ago(t.done_at || t.updated_at)) + "</span>" : '<span class="due ' + d.cls + '">' + esc(d.text) + "</span>") +
+      (showArea ? '<span class="bp6-tag bp6-minimal atag ' + t.area + '">' + AREA_LABEL[t.area] + "</span>" : "") +
+      (isDone ? "" : '<button class="bp6-tag bp6-minimal bp6-interactive st' + (t.status === "doing" ? " bp6-intent-warning" : "") + '" data-st title="Switch between To do and Doing">' + (t.status === "doing" ? "Doing" : "To do") + "</button>") +
+      "</div></div></div>";
+  }
+
+  function drawBoard() {
+    var today = todayISO(), weekEnd = isoAdd(startOfWeekISO(), 6);
+    var names = team();
+    if (B.who !== "all" && names.map(lc).indexOf(lc(B.who)) < 0) B.who = "all";
+    var mine = function (t) { return B.who === "all" || lc(t.owner_name) === lc(B.who); };
+    var open = B.rows.filter(mine), done = B.done.filter(mine);
+    var overdue = open.filter(function (t) { return t.due_on && t.due_on < today; }).length;
+    var week = open.filter(function (t) { return t.due_on && t.due_on >= today && t.due_on <= weekEnd; }).length;
+    $("#boardSub").textContent = (B.who === "all" ? "Everyone" : (lc(B.who) === lc(S.myName) ? "Your tasks" : B.who + "’s tasks")) + " · " + open.length + " open";
+    var stat = function (lab, num, cls) { return '<div class="bp6-card stat"><div class="lab">' + lab + '</div><div class="num' + (cls ? " " + cls : "") + '">' + num + "</div></div>"; };
+    $("#boardStats").innerHTML = stat("Open", open.length) + stat("Overdue", overdue, overdue ? "late" : "") + stat("Due this week", week) + stat("Done, 7 days", done.length, done.length ? "ok" : "");
+    var chip = function (attr, v, label, on) { return '<button type="button" class="bp6-button ' + (on ? "bp6-intent-primary" : "bp6-outlined") + '" data-' + attr + '="' + esc(v) + '" aria-pressed="' + on + '">' + esc(label) + "</button>"; };
+    $("#boardWho").innerHTML = chip("who", "all", "Everyone", B.who === "all") + names.map(function (n) { return chip("who", n, lc(n) === lc(S.myName) ? n + " (you)" : n, lc(B.who) === lc(n)); }).join("");
+    $("#boardArea").innerHTML = chip("area", "all", "All areas", B.area === "all") + AREAS.map(function (a) { return chip("area", a[0], a[1], B.area === a[0]); }).join("");
+    var areas = B.area === "all" ? AREAS : AREAS.filter(function (a) { return a[0] === B.area; });
+    $("#boardCols").className = "board-cols" + (areas.length === 1 ? " one" : "");
+    $("#boardCols").innerHTML = areas.map(function (a) {
+      var items = open.filter(function (t) { return t.area === a[0]; }).sort(byDue);
+      return '<section class="bcol"><h3><span class="area-' + a[0] + '">' + a[1] + '</span><span class="n">' + items.length + " open</span></h3>" +
+        (items.map(function (t) { return tcard(t, false); }).join("") || '<div class="bempty">Nothing open here.</div>') + "</section>";
+    }).join("");
+    var doneShown = done.filter(function (t) { return B.area === "all" || t.area === B.area; });
+    $("#boardDone").innerHTML = doneShown.length ? '<details class="bdone" open><summary>Done in the last 7 days <span class="n">· ' + doneShown.length + "</span></summary>" + doneShown.map(function (t) { return tcard(t, true); }).join("") + "</details>" : "";
+    $$("#boardWho [data-who]").forEach(function (b) { b.onclick = function () { B.who = b.dataset.who; saveBoardPrefs(); drawBoard(); }; });
+    $$("#boardArea [data-area]").forEach(function (b) { b.onclick = function () { B.area = b.dataset.area; saveBoardPrefs(); drawBoard(); }; });
+    $$("#view-board [data-tid]").forEach(function (el) {
+      var t = findT(el.dataset.tid); if (!t) return;
+      el.onclick = function (e) { if (e.target.closest("[data-check],[data-st]")) return; openTask(t); };
+      $("[data-check]", el).onclick = function () { toggleDone(t); };
+      var st = $("[data-st]", el); if (st) st.onclick = function () { patchTask(t, { status: t.status === "doing" ? "todo" : "doing" }); };
+    });
+  }
+
+  async function patchTask(t, patch, msg) {
+    var prev = Object.assign({}, t); Object.assign(t, patch); regroup(); drawBoard();
+    var r = await sb.from("team_tasks").update(patch).eq("id", t.id).select().single();
+    if (r.error) { Object.assign(t, prev); regroup(); drawBoard(); toast("Couldn’t save: " + r.error.message, "danger"); return false; }
+    Object.assign(t, r.data); regroup(); if (msg) toast(msg); return true;
+  }
+  function toggleDone(t) {
+    if (t.status === "done") patchTask(t, { status: "todo", done_at: null, done_by: null }, "Back on the board.");
+    else patchTask(t, { status: "done", done_at: new Date().toISOString(), done_by: S.user.id }, "Done.");
+  }
+
+  // add / edit dialog
+  function dueChoices() {
+    var today = todayISO(), dow = isoDow(today);
+    var fri = isoAdd(today, ((5 - dow + 7) % 7) || 7), mon = isoAdd(today, ((1 - dow + 7) % 7) || 7);
+    return [["today", "Today", today], ["tom", "Tomorrow", isoAdd(today, 1)], ["fri", "Fri " + fmtDay(fri, { month: "short", day: "numeric" }), fri], ["mon", "Next Mon", mon], ["pick", "Pick a date", null], ["none", "No date", null]];
+  }
+  function openTask(t) {
+    var fri = dueChoices()[2][2];
+    TD = t ? { id: t.id, area: t.area, owner: t.owner_name || "", due: t.due_on || null, status: t.status, mode: null }
+           : { id: null, area: B.area !== "all" ? B.area : "ops", owner: B.who !== "all" ? B.who : "", due: fri, status: "todo", mode: null };
+    $("#tdTitle").textContent = t ? "Edit task" : "New task";
+    $("#tdText").value = t ? t.title : ""; $("#tdNote").value = t ? (t.note || "") : "";
+    $("#tdSave").textContent = t ? "Save" : "Add task"; $("#tdSave").disabled = false;
+    $("#tdDelete").hidden = !t; $("#tdStatusWrap").hidden = !t;
+    drawTD();
+    $("#taskDlg").classList.add("open");
+    if (!t) setTimeout(function () { $("#tdText").focus(); }, 50);
+  }
+  function drawTD() {
+    var ch = dueChoices();
+    var mode = TD.mode || (!TD.due ? "none" : ((ch.find(function (c) { return c[2] === TD.due; }) || ["pick"])[0]));
+    var chip = function (k, v, label, on) { return '<button type="button" class="bp6-button ' + (on ? "bp6-intent-primary" : "bp6-outlined") + '" data-k="' + k + '" data-v="' + esc(v) + '" aria-pressed="' + on + '">' + esc(label) + "</button>"; };
+    $("#tdArea").innerHTML = AREAS.map(function (a) { return chip("area", a[0], a[1], TD.area === a[0]); }).join("");
+    $("#tdOwner").innerHTML = team().map(function (n) { return chip("owner", n, lc(n) === lc(S.myName) ? n + " (you)" : n, lc(TD.owner) === lc(n)); }).join("") + chip("owner", "", "Nobody yet", !TD.owner);
+    $("#tdDue").innerHTML = ch.map(function (c) { return chip("due", c[0], c[1], mode === c[0]); }).join("");
+    $("#tdDate").hidden = mode !== "pick"; if (mode === "pick") $("#tdDate").value = TD.due || "";
+    $("#tdDueText").textContent = TD.due ? "Due " + fmtDay(TD.due, { weekday: "long", month: "long", day: "numeric" }) : "No due date";
+    $("#tdStatus").innerHTML = [["todo", "To do"], ["doing", "Doing"], ["done", "Done"]].map(function (s) { return chip("status", s[0], s[1], TD.status === s[0]); }).join("");
+    $$("#taskDlg [data-k]").forEach(function (b) {
+      b.onclick = function () {
+        var k = b.dataset.k, v = b.dataset.v;
+        if (k === "area") TD.area = v;
+        if (k === "owner") TD.owner = v;
+        if (k === "status") TD.status = v;
+        if (k === "due") { TD.mode = v; if (v === "none") TD.due = null; else if (v !== "pick") TD.due = ch.find(function (c) { return c[0] === v; })[2]; }
+        drawTD();
+        if (k === "due" && v === "pick") $("#tdDate").focus();
+      };
+    });
+  }
+  function closeTD() { $("#taskDlg").classList.remove("open"); TD = null; }
+  $("#boardAdd").onclick = function () { openTask(null); };
+  $$("[data-td-close]").forEach(function (b) { b.onclick = closeTD; });
+  $("#taskDlg").addEventListener("click", function (e) { if (e.target.id === "taskDlg") closeTD(); });
+  $("#tdDate").onchange = function () { if (!TD) return; TD.due = $("#tdDate").value || null; TD.mode = "pick"; drawTD(); };
+  $("#tdText").addEventListener("keydown", function (e) { if (e.key === "Enter") $("#tdSave").click(); });
+  $("#tdSave").onclick = async function () {
+    if (!TD) return;
+    var title = $("#tdText").value.trim(); if (!title) { toast("Write what needs doing.", "warning"); $("#tdText").focus(); return; }
+    var row = { area: TD.area, title: title, note: $("#tdNote").value.trim() || null, owner_name: TD.owner || null, due_on: TD.due || null };
+    $("#tdSave").disabled = true;
+    try {
+      if (TD.id) {
+        var t = findT(TD.id); var was = t ? t.status : "todo";
+        row.status = TD.status;
+        if (TD.status === "done" && was !== "done") { row.done_at = new Date().toISOString(); row.done_by = S.user.id; }
+        if (TD.status !== "done" && was === "done") { row.done_at = null; row.done_by = null; }
+        var r = await sb.from("team_tasks").update(row).eq("id", TD.id).select().single();
+        if (r.error) throw new Error(r.error.message);
+        if (t) Object.assign(t, r.data); regroup(); toast("Saved.");
+      } else {
+        row.store_id = S.store; row.created_by = S.user.id; row.status = "todo";
+        var r2 = await sb.from("team_tasks").insert(row).select().single();
+        if (r2.error) throw new Error(r2.error.message);
+        B.rows.push(r2.data); toast(row.owner_name ? "Added to " + row.owner_name + "’s list." : "Added. Give it an owner when you know who.");
+      }
+      closeTD(); drawBoard();
+    } catch (e) { toast("Couldn’t save: " + e.message, "danger"); $("#tdSave").disabled = false; }
+  };
+  $("#tdDelete").onclick = async function () {
+    if (!TD || !TD.id || !confirm("Delete this task?")) return;
+    var id = TD.id;
+    var r = await sb.from("team_tasks").delete().eq("id", id).select("id");
+    if (r.error || !(r.data || []).length) { toast(r.error ? "Couldn’t delete: " + r.error.message : "Only an owner or whoever added it can delete it.", "danger"); return; }
+    B.rows = B.rows.filter(function (t) { return t.id !== id; }); B.done = B.done.filter(function (t) { return t.id !== id; });
+    closeTD(); drawBoard(); toast("Deleted.");
+  };
 
   // ---------- owners ----------
   async function loadOwners() {
