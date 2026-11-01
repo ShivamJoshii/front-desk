@@ -1,0 +1,9 @@
+# generated
+web/dist/
+# secrets / local
+.cron_key
+.env
+.env.*
+*.log
+node_modules/
+.netlify/

@@ -1,0 +1,47 @@
+
+/* ---------- focus mode ---------- */
+.focus-view{max-width:600px;margin:0 auto;padding:14px 16px 120px}
+.dayline{display:flex;justify-content:space-between;font-size:13px;color:var(--app-muted);margin:2px 2px 8px}
+.dayprog{height:4px;margin-bottom:26px}
+.card{padding:28px 28px 22px}
+.card .tiny{font-size:13px;color:var(--app-muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.card h1{font-size:30px;line-height:1.15;margin:0 0 12px;letter-spacing:-.4px;font-weight:600}
+.card h1 a{color:inherit;text-decoration:none;border-bottom:2px solid var(--app-line)}
+.card p.say{font-size:17px;line-height:1.5;margin:0 0 22px}
+.card .go{width:100%;min-height:58px;font-size:18px;font-weight:600;justify-content:center}
+.card .alt{display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:6px}
+.card .alt .bp6-button{color:var(--app-muted)}
+.say-box{display:none;margin-top:16px;padding:14px 16px;border-radius:6px;background:var(--app-soft);font-size:16px;line-height:1.55}
+.say-box.open{display:block}
+.say-box ol{margin:0;padding-left:20px}
+.say-box .last{margin-top:10px;font-size:14px;color:var(--app-muted)}
+.draft{padding:14px 16px;border-radius:6px;background:var(--app-soft);font-size:16px;line-height:1.5;margin-bottom:16px;border:1px solid var(--app-line)}
+.outcome h2{font-size:20px;margin:0 0 14px;font-weight:600}
+.outcome .bp6-button{width:100%;min-height:52px;font-size:16px;justify-content:flex-start;margin-bottom:8px;padding-left:16px}
+.reply{margin-top:16px;padding:12px 14px;border-radius:6px;background:rgba(35,133,81,.12);color:var(--app-success);font-weight:500;font-size:15px;display:flex;gap:8px;align-items:flex-start;line-height:1.4}
+.reply .ic{margin-top:2px}
+.upnext{margin-top:22px;font-size:13px;color:var(--app-muted);text-align:center;line-height:1.8}
+.upnext a{color:var(--app-muted)}
+.focus-list .bp6-control{font-size:16px;margin-bottom:10px}
+.eod .nums{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+.eod .nums div{background:var(--app-soft);border-radius:6px;padding:10px 6px;text-align:center}
+.eod .nums b{display:block;font-size:22px;line-height:1.1}
+.eod .nums span{font-size:11px;color:var(--app-muted)}
+.card textarea.bp6-input,.card input.bp6-input{width:100%;font-size:16px;margin-bottom:10px}
+.card textarea.bp6-input{min-height:64px;resize:vertical}
+.slide-in{animation:sl .28s ease}
+@keyframes sl{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.done h1{font-size:34px}
+.done .big{font-size:17px;line-height:1.6;margin:0 0 8px}
+@media (max-width:640px){ .focus-view{padding:10px 12px 110px} .card{padding:22px 18px 18px} .card h1{font-size:26px} .eod .nums{grid-template-columns:repeat(2,1fr)} }
+
+/* note composer */
+.notebox{border:1px solid rgba(17,20,24,.12);border-radius:8px;padding:10px;margin:0 0 16px;background:#fff}
+.notebox textarea{resize:vertical;min-height:52px;font-size:14px;font-family:inherit}
+.notebox .promise{margin-top:8px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.notebox .chips{display:flex;flex-wrap:wrap;gap:6px}
+.notebox .chips .bp6-button.on{background:#2d72d2;color:#fff;box-shadow:none}
+.notebox .when{display:flex;align-items:center;gap:8px;width:100%;margin-top:4px}
+.notebox .row2{display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px}
+.ev.note .body{white-space:pre-wrap}
+.ev .who{color:#5f6b7c;font-size:11px;margin-left:6px}
