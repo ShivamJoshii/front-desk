@@ -4,6 +4,8 @@
   var ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6YXB0eWtpaXJudGVneXN1dWxyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMDQ4NjcsImV4cCI6MjEwODg4MDg2N30.dI3ktu_eZa_35WvxKurbSl9l90u2NAI0_xxyhTqQY6c";
   var FN = SUPABASE_URL + "/functions/v1";
   var FLOOR_SWAP = "https://floor-swap-app.netlify.app";
+  var RECOVERY = /type=recovery/.test(location.hash);
+  var AUTH_ERR = (location.hash.match(/error_description=([^&]+)/) || [])[1];
   var sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
 
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -53,22 +55,38 @@
   $("#userBtn").onclick = async function () { if (confirm("Sign out?")) { await sb.auth.signOut(); location.reload(); } };
 
   // ---------- auth ----------
-  $("#loginBtn").onclick = async function () {
-    var email = $("#loginEmail").value.trim(); if (!email) return;
-    $("#loginBtn").disabled = true; $("#loginMsg").textContent = "Sending…";
-    var r = await sb.auth.signInWithOtp({ email: email, options: { emailRedirectTo: location.origin + "/" } });
+  function loginMsg(m, err) { var el = $("#loginMsg"); el.textContent = m || ""; el.classList.toggle("err", !!err); }
+  $("#loginForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var email = $("#loginEmail").value.trim(), pw = $("#loginPass").value;
+    if (!email || !pw) { loginMsg("Enter your email and password.", true); return; }
+    $("#loginBtn").disabled = true; loginMsg("Signing in…");
+    var r = await sb.auth.signInWithPassword({ email: email, password: pw });
     $("#loginBtn").disabled = false;
-    $("#loginMsg").textContent = r.error ? ("Could not send: " + r.error.message) : "Check your email and tap the link. It opens right back here.";
+    if (r.error) { loginMsg(/invalid/i.test(r.error.message) ? "That email and password don’t match." : "Couldn’t sign in: " + r.error.message, true); $("#loginPass").select(); return; }
+    loginMsg(""); $("#loginPass").value = "";
+    if (!S.user) boot();
+  });
+  $("#forgotBtn").onclick = async function () {
+    var email = $("#loginEmail").value.trim();
+    if (!email) { loginMsg("Type your email above, then tap Forgot password.", true); $("#loginEmail").focus(); return; }
+    var r = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + "/" });
+    loginMsg(r.error ? "Couldn’t send: " + r.error.message : "If that email has an account, a reset link is on its way. An owner can also reset it in Settings → Team.", !!r.error);
   };
-  $("#loginEmail").addEventListener("keydown", function (e) { if (e.key === "Enter") $("#loginBtn").click(); });
+  if (AUTH_ERR) loginMsg("That link didn’t work (" + decodeURIComponent(AUTH_ERR.replace(/\+/g, " ")) + "). Sign in with your password, or ask an owner to reset it.", true);
 
   async function boot() {
+    if (booting || S.user) return; booting = true;
+    try { await bootInner(); } finally { booting = false; }
+  }
+  async function bootInner() {
     var path = location.pathname;
     var sess = (await sb.auth.getSession()).data.session;
     if (!sess) { show("login"); return; }
     S.user = sess.user;
     var ok = await loadContext();
-    if (!ok) return;
+    if (!ok) { S.user = null; await sb.auth.signOut(); return; }
+    if (RECOVERY) { $("#navRight").style.display = ""; $("#bottombar").style.display = ""; history.replaceState(null, "", "/#settings"); show("settings"); return; }
     $("#navRight").style.display = ""; $("#bottombar").style.display = "";
     if (path.indexOf("/connect/quickbooks") === 0) { location.href = FN + "/qbo-connect?store_id=" + S.store; return; }
     if (path.indexOf("/settings/quickbooks") === 0) { history.replaceState(null, "", "/#settings"); show("settings"); return; }
@@ -79,13 +97,17 @@
     setInterval(function () { if (S.view === "board" && !document.hidden && !$("#taskDlg").classList.contains("open")) loadBoard(); }, 60000);
     setInterval(tick, 5 * 60000);
   }
-  sb.auth.onAuthStateChange(function (ev) { if (ev === "SIGNED_IN" && !S.user) boot(); });
+  var booting = false;
+  sb.auth.onAuthStateChange(function (ev) {
+    if (ev === "PASSWORD_RECOVERY") { RECOVERY = true; if (S.user) show("settings"); }
+    if (ev === "SIGNED_IN" && !S.user && !booting) setTimeout(boot, 0);
+  });
 
   async function loadContext() {
     try { await sb.rpc("accept_invites"); } catch (e) {}
     var m = await sb.from("store_members").select("store_id, role, desk_role, display_name, stores(name)").eq("user_id", S.user.id);
     var rows = m.data || [];
-    if (!rows.length) { $("#view-login").classList.remove("hidden"); $("#loginMsg").textContent = "Signed in as " + S.user.email + ", but this email isn't on any store yet. Ask Shivam to add you."; return false; }
+    if (!rows.length) { show("login"); loginMsg(S.user.email + " isn’t on the team yet. Ask an owner to add you in Settings → Team.", true); return false; }
     var r = rows[0];
     S.store = r.store_id; S.storeName = r.stores ? r.stores.name : ""; S.role = r.role; S.deskRole = r.desk_role; S.myName = r.display_name || "";
     var mm = await sb.from("store_members").select("display_name").eq("store_id", S.store);
@@ -630,8 +652,30 @@
         (S.role === "owner" ? '<div class="bp6-input-group bp6-large"><input class="bp6-input" id="slackUrl" placeholder="https://hooks.slack.com/services/…" autocomplete="off"></div>' +
           '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="bp6-button bp6-intent-primary bp6-large" id="slackSave">' + (slack.status === "connected" ? "Change channel" : "Connect Slack") + "</button>" + (slack.status === "connected" ? '<button class="bp6-button bp6-minimal bp6-large" id="slackOff">Disconnect</button>' : "") + "</div>" : "") +
         '<p class="bp6-text-muted bp6-text-small" style="margin-top:10px">In Slack: create an app at api.slack.com/apps → Incoming Webhooks → turn on → Add New Webhook → pick the channel (e.g. #team-board) → copy the link and paste it here.</p></div>' +
+      '<div class="bp6-card" style="margin-top:12px" id="pwCard"><h5 class="bp6-heading">Your password</h5>' + (RECOVERY ? '<div class="bp6-callout bp6-intent-primary">Set a new password to finish resetting it.</div>' : "") +
+        '<div class="pw-row"><input class="bp6-input bp6-large" type="password" id="pwNew" autocomplete="new-password" placeholder="New password (8+ characters)" aria-label="New password"><input class="bp6-input bp6-large" type="password" id="pwNew2" autocomplete="new-password" placeholder="Type it again" aria-label="Type the new password again"></div>' +
+        '<button class="bp6-button bp6-intent-primary bp6-large" id="pwSave">Save password</button></div>' +
+      (S.role === "owner" ? '<div class="bp6-card" style="margin-top:12px"><h5 class="bp6-heading">Team</h5><p class="bp6-text-muted" style="margin:0">Who can sign in. Set or reset anyone’s password here.</p><div class="team-list" id="teamList"><p class="bp6-text-muted">Loading…</p></div>' +
+        '<form class="team-form" id="teamForm" novalidate><div class="bp6-form-group" style="margin:0"><label class="bp6-label" for="tmName">Name</label><input class="bp6-input bp6-fill" id="tmName" autocomplete="off"></div>' +
+        '<div class="bp6-form-group" style="margin:0"><label class="bp6-label" for="tmEmail">Email</label><input class="bp6-input bp6-fill" id="tmEmail" type="email" autocomplete="off"></div>' +
+        '<div class="bp6-form-group" style="margin:0"><label class="bp6-label" for="tmAccess">Access</label><div class="bp6-html-select bp6-fill"><select id="tmAccess"><option value="owner">Owner — everything</option><option value="front_desk">Front desk</option><option value="team">Team member</option></select></div></div>' +
+        '<div class="bp6-form-group" style="margin:0"><label class="bp6-label" for="tmPass">Password <span class="bp6-text-muted">(leave blank to keep theirs)</span></label><input class="bp6-input bp6-fill" id="tmPass" type="password" autocomplete="new-password"></div>' +
+        '<label class="bp6-control bp6-checkbox full" style="margin:0"><input type="checkbox" class="bp6-control-input" id="tmShow"><span class="bp6-control-indicator"></span>Show password</label>' +
+        '<div class="full" style="display:flex;gap:8px;flex-wrap:wrap"><button type="submit" class="bp6-button bp6-intent-primary bp6-large" id="tmSave">Save login</button><button type="button" class="bp6-button bp6-large bp6-minimal" id="tmClear">Clear</button></div></form></div>' : "") +
       '<div class="bp6-card" style="margin-top:12px"><h5 class="bp6-heading">Help</h5><p>Something off? <a href="mailto:hello@mybuilder.ca">hello@mybuilder.ca</a> — include the lead’s name and what you expected.</p></div>' +
       '<p class="bp6-text-muted bp6-text-small" style="margin-top:12px">Signed in as ' + esc(S.user.email) + " · " + esc(S.storeName) + " · " + esc(S.deskRole || S.role) + "</p>";
+    $("#pwSave").onclick = async function () {
+      var a = $("#pwNew").value, b = $("#pwNew2").value;
+      if (a.length < 8) { toast("Use at least 8 characters.", "warning"); return; }
+      if (a !== b) { toast("The two passwords don’t match.", "warning"); return; }
+      $("#pwSave").disabled = true;
+      var r = await sb.auth.updateUser({ password: a });
+      $("#pwSave").disabled = false;
+      if (r.error) { toast("Couldn’t save: " + r.error.message, "danger"); return; }
+      $("#pwNew").value = ""; $("#pwNew2").value = ""; RECOVERY = false; toast("Password saved. Use it next time you sign in."); loadSettings();
+    };
+    if (RECOVERY) setTimeout(function () { $("#pwNew").focus(); }, 50);
+    if (S.role === "owner") loadTeam();
     var ss = $("#slackSave"); if (ss) ss.onclick = async function () {
       var url = $("#slackUrl").value.trim(); if (!url) { toast("Paste the Slack webhook link first.", "warning"); return; }
       ss.disabled = true; ss.textContent = "Checking…";
@@ -640,6 +684,40 @@
     };
     var so = $("#slackOff"); if (so) so.onclick = async function () { if (!confirm("Stop posting board tasks to Slack?")) return; try { await authedFetch("/board-notify", { action: "disconnect", store_id: S.store }); toast("Slack disconnected."); loadSettings(); } catch (e) { toast(e.message, "danger"); } };
     if (p.toString()) history.replaceState(null, "", "/#settings");
+  }
+
+  // ---------- team (owners) ----------
+  var ACCESS_LABEL = { owner: "Owner", front_desk: "Front desk", team: "Team member" };
+  async function loadTeam() {
+    var box = $("#teamList"); if (!box) return;
+    try {
+      var j = await authedFetch("/team-admin", { action: "list", store_id: S.store });
+      var rows = (j.members || []).slice().sort(function (a, b) { return String(a.display_name).localeCompare(String(b.display_name)); });
+      var html = rows.map(function (m) {
+        return '<div class="team-row"><span class="nm">' + esc(m.display_name || "—") + (m.me ? ' <span class="bp6-text-muted">(you)</span>' : "") + '</span><span class="em">' + esc(m.email || "") + '</span><span class="bp6-tag bp6-minimal">' + ACCESS_LABEL[m.access] + '</span><span class="bp6-text-muted bp6-text-small">' + (m.last_sign_in_at ? "signed in " + esc(ago(m.last_sign_in_at)) : "never signed in") + '</span><span class="acts"><button class="bp6-button bp6-small bp6-minimal" data-tm-edit="' + esc(m.email || "") + '" data-name="' + esc(m.display_name || "") + '" data-access="' + m.access + '">Edit</button>' + (m.me ? "" : '<button class="bp6-button bp6-small bp6-minimal bp6-intent-danger" data-tm-rm="' + m.user_id + '" data-name="' + esc(m.display_name || "") + '">Remove</button>') + "</span></div>";
+      }).join("") + (j.pending || []).map(function (i) {
+        return '<div class="team-row"><span class="nm">' + esc(i.display_name || "—") + '</span><span class="em">' + esc(i.email) + '</span><span class="bp6-tag bp6-minimal">' + ACCESS_LABEL[i.access] + '</span><span class="bp6-tag bp6-intent-warning bp6-minimal">no login yet</span><span class="acts"><button class="bp6-button bp6-small bp6-intent-primary" data-tm-edit="' + esc(i.email) + '" data-name="' + esc(i.display_name || "") + '" data-access="' + i.access + '">Create login</button></span></div>';
+      }).join("");
+      box.innerHTML = html || '<p class="bp6-text-muted">No one yet.</p>';
+      $$("[data-tm-edit]", box).forEach(function (b) { b.onclick = function () { $("#tmName").value = b.dataset.name; $("#tmEmail").value = b.dataset.tmEdit; $("#tmAccess").value = b.dataset.access; $("#tmPass").focus(); $("#teamForm").scrollIntoView({ behavior: "smooth", block: "nearest" }); }; });
+      $$("[data-tm-rm]", box).forEach(function (b) { b.onclick = async function () { if (!confirm("Take " + b.dataset.name + " off Front Desk? They won’t be able to see anything.")) return; try { await authedFetch("/team-admin", { action: "remove", store_id: S.store, user_id: b.dataset.tmRm }); toast(b.dataset.name + " removed."); loadTeam(); } catch (e) { toast(e.message, "danger"); } }; });
+    } catch (e) { box.innerHTML = '<div class="bp6-callout bp6-intent-warning">Couldn’t load the team: ' + esc(e.message) + "</div>"; }
+    var f = $("#teamForm"); if (!f || f.dataset.bound) return; f.dataset.bound = "1";
+    $("#tmShow").onchange = function () { $("#tmPass").type = $("#tmShow").checked ? "text" : "password"; };
+    $("#tmClear").onclick = function () { $("#tmName").value = ""; $("#tmEmail").value = ""; $("#tmPass").value = ""; $("#tmAccess").value = "team"; };
+    f.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      var name = $("#tmName").value.trim(), email = $("#tmEmail").value.trim(), pw = $("#tmPass").value;
+      if (!name || !email) { toast("Name and email first.", "warning"); return; }
+      $("#tmSave").disabled = true; $("#tmSave").textContent = "Saving…";
+      try {
+        var r = await authedFetch("/team-admin", { action: "save", store_id: S.store, email: email, display_name: name, access: $("#tmAccess").value, password: pw || null });
+        toast(r.created ? "Login created for " + name + "." : (r.password_set ? "Password reset for " + name + "." : name + " saved."));
+        $("#tmName").value = ""; $("#tmEmail").value = ""; // password stays so you can set several people in a row
+        loadTeam();
+      } catch (err) { toast(err.message, "danger"); }
+      $("#tmSave").disabled = false; $("#tmSave").textContent = "Save login";
+    });
   }
 
   boot();
