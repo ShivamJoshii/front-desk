@@ -12,7 +12,7 @@
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
   var esc = function (s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;"); };
   var S = { user: null, store: null, storeName: "", role: "staff", deskRole: null, myName: "", members: [], settings: {}, tz: "America/Edmonton", ghlLocation: null, tasks: [], current: null, view: "today", leadsCache: null };
-  var VIEWS = ["today", "leads", "board", "owners", "settings"];
+  var VIEWS = ["today", "leads", "board", "eod", "owners", "settings"];
 
   // ---------- small utils ----------
   var tt; function toast(m, intent) { var t = $("#toast"); t.className = "bp6-toast toast show bp6-intent-" + (intent || "success"); $("#toastMsg").textContent = m; clearTimeout(tt); tt = setTimeout(function () { t.classList.remove("show"); }, 3200); }
@@ -44,12 +44,14 @@
     if (v === "today") loadTasks();
     if (v === "leads") loadLeads();
     if (v === "board") loadBoard();
+    if (v === "eod") loadEod();
     if (v === "owners") loadOwners();
     if (v === "settings") loadSettings();
     window.scrollTo(0, 0);
     if (location.hash !== "#" + v) history.replaceState(null, "", "#" + v);
   }
   $$("[data-nav]").forEach(function (b) { b.addEventListener("click", function () { show(b.dataset.nav); }); });
+  $$("[data-nav-link]").forEach(function (b) { b.addEventListener("click", function (e) { e.preventDefault(); show(b.dataset.navLink); }); });
   $("#darkBtn").onclick = function () { document.body.classList.toggle("bp6-dark"); try { localStorage.setItem("fd-dark", document.body.classList.contains("bp6-dark") ? "1" : "0"); } catch (e) {} };
   try { if (localStorage.getItem("fd-dark") === "1") document.body.classList.add("bp6-dark"); } catch (e) {}
   $("#userBtn").onclick = async function () { if (confirm("Sign out?")) { await sb.auth.signOut(); location.reload(); } };
@@ -128,15 +130,26 @@
     var r = await sb.from("tasks").select("*, leads(" + LEAD_COLS + ")").eq("store_id", S.store).eq("status", "open").order("due_at").limit(300);
     if (r.error) { if (!silent) $("#stage").innerHTML = '<div class="bp6-card card"><p class="say">Could not load tasks: ' + esc(r.error.message) + "</p></div>"; return; }
     S.tasks = r.data || [];
+    var today = todayISO();
+    var stale = S.tasks.filter(function (t) { return (t.kind === "focus" || t.kind === "eod") && dayKey(t.due_at) < today; });
+    if (stale.length) {
+      sb.from("tasks").update({ status: "skipped", outcome: "expired" }).in("id", stale.map(function (t) { return t.id; })).then(function () {});
+      S.tasks = S.tasks.filter(function (t) { return stale.indexOf(t) < 0; });
+    }
     var doneToday = await sb.from("tasks").select("id", { count: "exact", head: true }).eq("store_id", S.store).eq("status", "done").gte("done_at", new Date(now.getTime() - 24 * 3600000).toISOString());
     var done = doneToday.count || 0;
-    var dueNow = S.tasks.filter(function (t) { return new Date(t.due_at) <= now; });
+    var dueNow = S.tasks.filter(function (t) { return new Date(t.due_at) <= now && t.kind !== "focus" && t.kind !== "eod"; });
     $("#clock").textContent = fmtDate(now) + " · " + fmtTime(now);
     $("#progressText").textContent = done + " done · " + dueNow.length + " due now";
     var total = done + dueNow.length; $("#progressBar").style.width = (total ? Math.round(done / total * 100) : 0) + "%";
     // pick the card
-    var focus = S.tasks.find(function (t) { return t.kind === "focus" && new Date(t.due_at).getTime() - 30 * 60000 <= now.getTime(); });
-    var eod = S.tasks.find(function (t) { return t.kind === "eod" && new Date(t.due_at) <= now; });
+    // morning focus is a card until noon (settings.focus_until); after that it quietly expires tomorrow
+    var hourNow = Number(new Intl.DateTimeFormat("en-CA", { timeZone: S.tz, hour: "numeric", hourCycle: "h23" }).format(now));
+    var focusUntil = parseInt(String(S.settings.focus_until || "12:00").split(":")[0], 10);
+    var focus = hourNow < focusUntil ? S.tasks.find(function (t) { return t.kind === "focus" && dayKey(t.due_at) === today && new Date(t.due_at).getTime() - 30 * 60000 <= now.getTime(); }) : null;
+    // end of day lives in its own tab; the stack only shows a banner once it's due
+    var eod = S.tasks.find(function (t) { return t.kind === "eod" && dayKey(t.due_at) === today && new Date(t.due_at) <= now; });
+    $("#eodBanner").hidden = !eod;
     var rank = { call: 1, untouched: 1, confirm: 0, brief: 0, rebook: 1, chase: 2, text: 3, mockup: 2, walkin_followup: 1, custom: 4 };
     var pool = dueNow.filter(function (t) { return t.kind !== "focus" && t.kind !== "eod"; }).sort(function (a, b) {
       var na = a.leads && a.leads.stage === "new" ? -1 : 0, nb = b.leads && b.leads.stage === "new" ? -1 : 0;
@@ -145,8 +158,8 @@
       var la = a.leads && a.leads.last_touch_at ? new Date(a.leads.last_touch_at).getTime() : 0, lb = b.leads && b.leads.last_touch_at ? new Date(b.leads.last_touch_at).getTime() : 0;
       return lb - la;
     });
-    var cur = focus || eod || pool[0] || null;
-    if (!cur) { var next = S.tasks.filter(function (t) { return new Date(t.due_at) > now; })[0]; renderWait(next); upnext(pool.slice(1), next); return; }
+    var cur = focus || pool[0] || null;
+    if (!cur) { var next = S.tasks.filter(function (t) { return new Date(t.due_at) > now && t.kind !== "focus" && t.kind !== "eod"; })[0]; renderWait(next); upnext(pool.slice(1), next); return; }
     if (silent && S.current && S.current.id === cur.id) return;
     S.current = cur; render(cur); upnext(pool.filter(function (t) { return t.id !== cur.id; }).slice(0, 3), null);
   }
@@ -292,7 +305,7 @@
       sb.from("appointments").select("id", { count: "exact", head: true }).eq("store_id", S.store).gte("created_at", iso),
       sb.from("appointments").select("id", { count: "exact", head: true }).eq("store_id", S.store).eq("status", "showed").gte("starts_at", iso),
       sb.from("tasks").select("id", { count: "exact", head: true }).eq("store_id", S.store).eq("status", "done").gte("done_at", iso),
-      sb.from("tasks").select("id", { count: "exact", head: true }).eq("store_id", S.store).eq("status", "open").lte("due_at", new Date().toISOString()),
+      sb.from("tasks").select("id", { count: "exact", head: true }).eq("store_id", S.store).eq("status", "open").not("kind", "in", "(focus,eod)").lte("due_at", new Date().toISOString()),
     ]);
     return { new_leads: q[0].count || 0, dials: q[1].count || 0, reached: q[2].count || 0, booked: q[3].count || 0, showed: q[4].count || 0, tasks_done: q[5].count || 0, due_now: q[6].count || 0 };
   }
@@ -335,6 +348,35 @@
         await done(t, "posted"); var o = $("#stage .outcome"); o.hidden = false; reply(o, "Posted. Owners get it now. See you at 8:30.");
       };
     }
+  }
+
+  // ---------- end of day (its own tab) ----------
+  async function loadEod() {
+    var box = $("#eodBody"); box.innerHTML = '<p class="say bp6-text-muted">Counting today…</p>';
+    var q = await Promise.all([
+      todayNumbers(),
+      sb.from("daily_reports").select("picks, text").eq("store_id", S.store).eq("report_date", todayISO()).eq("kind", "focus").eq("user_id", S.user.id).maybeSingle(),
+      sb.from("daily_reports").select("text, posted_at").eq("store_id", S.store).eq("report_date", todayISO()).eq("kind", "eod").eq("user_id", S.user.id).maybeSingle(),
+    ]);
+    var n = q[0], f = q[1].data, mine = q[2].data;
+    var worked = "", stuck = "";
+    if (mine && mine.text) { var m1 = mine.text.match(/^Worked: ?([\s\S]*?)\nStuck: ?([\s\S]*)$/); if (m1) { worked = m1[1]; stuck = m1[2]; } else worked = mine.text; }
+    box.innerHTML = '<div class="tiny"><span class="bp6-tag bp6-intent-primary">END OF DAY</span><span>' + esc(fmtDate(new Date())) + "</span>" + (mine ? '<span class="bp6-tag bp6-minimal bp6-intent-success">posted ' + esc(fmtTime(mine.posted_at)) + "</span>" : "") + "</div>" +
+      '<div class="eod"><h1>' + n.dials + " dials · " + n.reached + " reached · " + n.booked + " booked.</h1>" +
+      '<div class="nums">' + [["new leads", n.new_leads], ["dials", n.dials], ["reached", n.reached], ["booked", n.booked], ["showed", n.showed], ["tasks done", n.tasks_done], ["still due", n.due_now]].map(function (x) { return "<div><b>" + x[1] + "</b><span>" + x[0] + "</span></div>"; }).join("") + "</div>" +
+      '<p class="say">' + (f && f.picks && f.picks.length ? "This morning you said: " + esc(f.picks.join(" · ")) : "No focus was posted this morning.") + "</p>" +
+      '<label class="bp6-label" for="eodWorked">What worked</label><textarea class="bp6-input" id="eodWorked">' + esc(worked) + "</textarea>" +
+      '<label class="bp6-label" for="eodStuck">What got stuck</label><textarea class="bp6-input" id="eodStuck">' + esc(stuck) + "</textarea>" +
+      '<button class="bp6-button bp6-intent-primary bp6-large go" id="eodPost">' + (mine ? "Update my report" : "Post and go home") + "</button></div>";
+    $("#eodPost").onclick = async function () {
+      var b = $("#eodPost"); b.disabled = true;
+      var r = await sb.from("daily_reports").upsert({ store_id: S.store, user_id: S.user.id, report_date: todayISO(), kind: "eod", numbers: n, text: "Worked: " + $("#eodWorked").value.trim() + "\nStuck: " + $("#eodStuck").value.trim(), posted_at: new Date().toISOString() }, { onConflict: "store_id,report_date,kind,user_id" });
+      if (r.error) { b.disabled = false; toast("Couldn’t post: " + r.error.message, "danger"); return; }
+      var start = new Date(); start.setHours(0, 0, 0, 0);
+      await sb.from("tasks").update({ status: "done", outcome: "posted", done_at: new Date().toISOString(), done_by: S.user.id }).eq("store_id", S.store).eq("kind", "eod").eq("status", "open").gte("due_at", start.toISOString());
+      toast(mine ? "Report updated." : "Posted. Owners see it now. See you tomorrow.");
+      loadEod();
+    };
   }
 
   // ---------- walk-in ----------

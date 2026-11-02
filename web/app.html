@@ -50,6 +50,10 @@
 .leadlist{max-width:760px;margin:0 auto;padding:16px}
 .leadlist .row{display:grid;grid-template-columns:1fr auto;gap:10px;padding:10px 14px;margin-bottom:6px;cursor:pointer}
 .leadlist .nm{font-weight:600}.leadlist .sub{font-size:12px;color:var(--app-muted)}
+.card textarea.bp6-input,.notebox textarea{font-family:inherit}
+.eod-banner{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-14px 0 16px}
+.eod-banner[hidden]{display:none}
+.dayline a{color:var(--app-muted)}
 .calllink{display:block;text-align:center;font-size:13px;color:var(--app-muted);margin-top:8px}
 @media (max-width:900px){.owners .grid{grid-template-columns:repeat(2,1fr)}.owners .two{grid-template-columns:1fr}}
 /* team board */
@@ -119,6 +123,7 @@
     <button class="bp6-button bp6-minimal nav-center" data-nav="today"><svg class="ic"><use href="#i-flag"/></svg>&nbsp;Today</button>
     <button class="bp6-button bp6-minimal nav-center" data-nav="leads"><svg class="ic"><use href="#i-search"/></svg>&nbsp;Leads</button>
     <button class="bp6-button bp6-minimal nav-center" data-nav="board"><svg class="ic"><use href="#i-board"/></svg>&nbsp;Board</button>
+    <button class="bp6-button bp6-minimal nav-center" data-nav="eod"><svg class="ic"><use href="#i-time"/></svg>&nbsp;End of day</button>
     <button class="bp6-button bp6-minimal nav-center" data-nav="owners"><svg class="ic"><use href="#i-dashboard"/></svg>&nbsp;Owners</button>
     <button class="bp6-button bp6-intent-success nav-center" data-walkin><svg class="ic"><use href="#i-walk"/></svg>&nbsp;Walk-in</button>
     <span class="bp6-navbar-divider"></span>
@@ -143,8 +148,9 @@
 
 <!-- TODAY -->
 <main class="view focus-view hidden" id="view-today">
-  <div class="dayline"><span id="clock"></span><span class="bp6-text-muted" id="progressText"></span></div>
+  <div class="dayline"><span id="clock"></span><span><span class="bp6-text-muted" id="progressText"></span> · <a href="#eod" data-nav-link="eod">End of day</a></span></div>
   <div class="bp6-progress-bar bp6-intent-primary bp6-no-stripes bp6-no-animation dayprog"><div class="bp6-progress-meter" id="progressBar" style="width:0%"></div></div>
+  <div class="bp6-callout bp6-intent-primary eod-banner" id="eodBanner" hidden><span>It’s end of day. Post the report before you leave.</span><button class="bp6-button bp6-intent-primary" data-nav-link="eod">Open it</button></div>
   <section class="stage" id="stage"><div class="bp6-card card"><p class="say bp6-text-muted">Loading…</p></div></section>
   <div class="upnext" id="upnext"></div>
 </main>
@@ -176,6 +182,9 @@
     <div id="boardDone"></div>
   </div>
 </main>
+
+<!-- END OF DAY -->
+<main class="view focus-view hidden" id="view-eod"><section class="stage"><div class="bp6-card bp6-elevation-1 card" id="eodBody"><p class="say bp6-text-muted">Loading…</p></div></section></main>
 
 <!-- OWNERS -->
 <main class="view hidden" id="view-owners"><div class="owners" id="ownersBody"><p class="bp6-text-muted">Loading…</p></div></main>
