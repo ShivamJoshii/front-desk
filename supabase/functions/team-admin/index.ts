@@ -66,6 +66,7 @@ Deno.serve(async (req) => {
       if (password && password.length < 8) return json({ error: "Password needs at least 8 characters." }, 400);
       let au = (await allUsers()).find((x) => String(x.email || "").toLowerCase() === email);
       let created = false;
+      if (au && au.id === u.user.id && acc.role !== "owner") return json({ error: "You can't remove your own owner access." }, 400);
       if (!au) {
         if (!password) return json({ error: "Set a password for their first login." }, 400);
         const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { display_name: name } });
@@ -75,7 +76,6 @@ Deno.serve(async (req) => {
         const { error } = await admin.auth.admin.updateUserById(au.id, { password, email_confirm: true });
         if (error) return json({ error: error.message }, 400);
       }
-      if (au.id === u.user.id && acc.role !== "owner") return json({ error: "You can't remove your own owner access." }, 400);
       const { error: mErr } = await admin.from("store_members").upsert({ store_id, user_id: au.id, role: acc.role, desk_role: acc.desk_role, display_name: name }, { onConflict: "store_id,user_id" });
       if (mErr) return json({ error: mErr.message }, 500);
       await admin.from("store_invites").upsert({ store_id, email, role: acc.role, desk_role: acc.desk_role, display_name: name, accepted_at: new Date().toISOString() }, { onConflict: "store_id,email" });
