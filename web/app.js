@@ -543,6 +543,7 @@
       };
     });
   }
+  function notifyBoard(id, ev) { authedFetch("/board-notify", { action: "task", task_id: id, event: ev }).catch(function () { /* Slack is best effort */ }); }
   function closeTD() { $("#taskDlg").classList.remove("open"); TD = null; }
   $("#boardAdd").onclick = function () { openTask(null); };
   $$("[data-td-close]").forEach(function (b) { b.onclick = closeTD; });
@@ -556,18 +557,20 @@
     $("#tdSave").disabled = true;
     try {
       if (TD.id) {
-        var t = findT(TD.id); var was = t ? t.status : "todo";
+        var t = findT(TD.id); var was = t ? t.status : "todo"; var wasOwner = t ? (t.owner_name || "") : "";
         row.status = TD.status;
         if (TD.status === "done" && was !== "done") { row.done_at = new Date().toISOString(); row.done_by = S.user.id; }
         if (TD.status !== "done" && was === "done") { row.done_at = null; row.done_by = null; }
         var r = await sb.from("team_tasks").update(row).eq("id", TD.id).select().single();
         if (r.error) throw new Error(r.error.message);
         if (t) Object.assign(t, r.data); regroup(); toast("Saved.");
+        if (lc(wasOwner) !== lc(row.owner_name) && row.owner_name && TD.status !== "done") notifyBoard(TD.id, "assigned");
       } else {
         row.store_id = S.store; row.created_by = S.user.id; row.status = "todo";
         var r2 = await sb.from("team_tasks").insert(row).select().single();
         if (r2.error) throw new Error(r2.error.message);
         B.rows.push(r2.data); toast(row.owner_name ? "Added to " + row.owner_name + "’s list." : "Added. Give it an owner when you know who.");
+        notifyBoard(r2.data.id, "created");
       }
       closeTD(); drawBoard();
     } catch (e) { toast("Couldn’t save: " + e.message, "danger"); $("#tdSave").disabled = false; }
@@ -617,14 +620,25 @@
   async function loadSettings() {
     var body = $("#settingsBody"); var p = new URLSearchParams(location.search);
     var integ = await sb.rpc("desk_integration_status", { p_store: S.store }); var rows = integ.data || [];
-    var qbo = rows.find(function (i) { return i.provider === "qbo"; }) || {}, ghl = rows.find(function (i) { return i.provider === "ghl"; }) || {};
+    var qbo = rows.find(function (i) { return i.provider === "qbo"; }) || {}, ghl = rows.find(function (i) { return i.provider === "ghl"; }) || {}, slack = rows.find(function (i) { return i.provider === "slack"; }) || {};
     var msg = p.get("connected") ? '<div class="bp6-callout bp6-intent-success">QuickBooks connected. First import is running.</div>' : p.get("error") ? '<div class="bp6-callout bp6-intent-danger">QuickBooks: ' + esc(p.get("error")) + "</div>" : p.get("disconnected") ? '<div class="bp6-callout">QuickBooks disconnected.</div>' : "";
     body.innerHTML = msg + '<div class="bp6-card" style="margin-top:12px"><h5 class="bp6-heading">QuickBooks Online</h5><p>' + (qbo.status === "connected" ? "Connected" + (qbo.config && qbo.config.realm_id ? " · company " + esc(qbo.config.realm_id) : "") + (qbo.last_sync_at ? " · synced " + ago(qbo.last_sync_at) : "") : qbo.status === "error" ? "Problem: " + esc(qbo.last_error || "") : "Not connected") + "</p>" +
       '<a class="bp6-button bp6-intent-primary bp6-large" href="' + FN + "/qbo-connect?store_id=" + S.store + '">' + (qbo.status === "connected" ? "Reconnect QuickBooks" : "Connect QuickBooks") + "</a>" +
       '<p class="bp6-text-muted bp6-text-small" style="margin-top:10px">Whoever is the QuickBooks admin at ' + esc(S.storeName) + " clicks this once and signs in to Intuit. We read customers, estimates, invoices and payments. Nothing is written.</p></div>" +
       '<div class="bp6-card" style="margin-top:12px"><h5 class="bp6-heading">GHL</h5><p>' + (ghl.status === "connected" ? "Connected" + (ghl.last_sync_at ? " · synced " + ago(ghl.last_sync_at) : "") : "Not connected") + (ghl.last_error ? '<br><span class="bp6-text-muted">' + esc(ghl.last_error) + "</span>" : "") + "</p></div>" +
+      '<div class="bp6-card" style="margin-top:12px"><h5 class="bp6-heading">Slack</h5><p>' + (slack.status === "connected" ? "Connected · new board tasks post to your channel" + (slack.last_error ? '<br><span class="bp6-text-muted">Last problem: ' + esc(slack.last_error) + "</span>" : "") : "Not connected") + "</p>" +
+        (S.role === "owner" ? '<div class="bp6-input-group bp6-large"><input class="bp6-input" id="slackUrl" placeholder="https://hooks.slack.com/services/…" autocomplete="off"></div>' +
+          '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="bp6-button bp6-intent-primary bp6-large" id="slackSave">' + (slack.status === "connected" ? "Change channel" : "Connect Slack") + "</button>" + (slack.status === "connected" ? '<button class="bp6-button bp6-minimal bp6-large" id="slackOff">Disconnect</button>' : "") + "</div>" : "") +
+        '<p class="bp6-text-muted bp6-text-small" style="margin-top:10px">In Slack: create an app at api.slack.com/apps → Incoming Webhooks → turn on → Add New Webhook → pick the channel (e.g. #team-board) → copy the link and paste it here.</p></div>' +
       '<div class="bp6-card" style="margin-top:12px"><h5 class="bp6-heading">Help</h5><p>Something off? <a href="mailto:hello@mybuilder.ca">hello@mybuilder.ca</a> — include the lead’s name and what you expected.</p></div>' +
       '<p class="bp6-text-muted bp6-text-small" style="margin-top:12px">Signed in as ' + esc(S.user.email) + " · " + esc(S.storeName) + " · " + esc(S.deskRole || S.role) + "</p>";
+    var ss = $("#slackSave"); if (ss) ss.onclick = async function () {
+      var url = $("#slackUrl").value.trim(); if (!url) { toast("Paste the Slack webhook link first.", "warning"); return; }
+      ss.disabled = true; ss.textContent = "Checking…";
+      try { await authedFetch("/board-notify", { action: "connect", store_id: S.store, webhook_url: url }); toast("Slack connected. Check the channel for a test message."); loadSettings(); }
+      catch (e) { toast(e.message, "danger"); ss.disabled = false; ss.textContent = "Connect Slack"; }
+    };
+    var so = $("#slackOff"); if (so) so.onclick = async function () { if (!confirm("Stop posting board tasks to Slack?")) return; try { await authedFetch("/board-notify", { action: "disconnect", store_id: S.store }); toast("Slack disconnected."); loadSettings(); } catch (e) { toast(e.message, "danger"); } };
     if (p.toString()) history.replaceState(null, "", "/#settings");
   }
 
